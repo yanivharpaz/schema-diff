@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema Diff — Compare Two Databases</title>
+
+<style>
+/* ── Reset & base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif; background: #f5f7fa; color: #1e293b; line-height: 1.6; }
+
+/* ── Layout ───────────────────────────────────────────────────── */
+.container { max-width: 1280px; margin: 0 auto; padding: 2rem 1.5rem; }
+h1 { font-size: 1.75rem; font-weight: 700; text-align: center; margin-bottom: .25rem; }
+.subtitle { text-align: center; color: #64748b; font-size: .95rem; margin-bottom: 2rem; }
+
+/* ── Forms ────────────────────────────────────────────────────── */
+.forms-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+@media (max-width: 768px) { .forms-row { grid-template-columns: 1fr; } }
+
+.form-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.form-card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: .5rem; }
+.form-card h2 .badge { background: #eef2ff; color: #4338ca; font-size: .7rem; padding: 2px 8px; border-radius: 99px; }
+
+label { display: block; font-size: .85rem; font-weight: 500; color: #334155; margin-bottom: .35rem; }
+input, select { width: 100%; padding: .5rem .75rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .9rem; background: #fff; transition: border-color .15s; margin-bottom: .85rem; }
+input:focus, select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
+
+.field-group { transition: max-height .3s ease, opacity .3s ease; overflow: hidden; }
+.field-group.hidden { max-height: 0 !important; opacity: 0; margin: 0 !important; pointer-events: none; }
+.field-group.visible { max-height: 400px; opacity: 1; }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.btn-row { text-align: center; margin-bottom: 2rem; }
+.btn { display: inline-flex; align-items: center; gap: .5rem; padding: .65rem 2rem; font-size: .95rem; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; transition: background .15s, transform .1s; }
+.btn-primary { background: #4f46e5; color: #fff; }
+.btn-primary:hover { background: #4338ca; }
+.btn-primary:active { transform: scale(.97); }
+.btn-outline { background: transparent; color: #64748b; border: 1px solid #cbd5e1; font-size: .85rem; padding: .5rem 1.25rem; }
+.btn-outline:hover { background: #f8fafc; border-color: #94a3b8; }
+
+/* ── Demo helpers ─────────────────────────────────────────────── */
+.demo-hint { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: .85rem 1rem; font-size: .83rem; color: #92400e; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: .5rem; }
+.demo-hint strong { white-space: nowrap; }
+.demo-btn { background: #f59e0b; color: #fff; border: none; padding: .3rem .75rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: .8rem; white-space: nowrap; }
+.demo-btn:hover { background: #d97706; }
+
+/* ── Loading ──────────────────────────────────────────────────── */
+.loading-bar { display: none; text-align: center; padding: 3rem; color: #64748b; }
+.loading-bar.visible { display: block; }
+.spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 1rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Error banner ─────────────────────────────────────────────── */
+.error-banner { display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 1rem 1.25rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: .9rem; }
+.error-banner.visible { display: block; }
+
+/* ── Results ──────────────────────────────────────────────────── */
+.results { display: none; }
+.results.visible { display: block; }
+
+.summary-bar { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.summary-stats { display: flex; gap: 2rem; flex-wrap: wrap; align-items: center; }
+.stat-item { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+.stat-value { font-weight: 700; font-size: 1.3rem; }
+.stat-label { color: #64748b; font-size: .8rem; }
+
+.legend { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; }
+.legend-item { display: flex; align-items: center; gap: .35rem; font-size: .8rem; color: #475569; }
+.legend-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.08); flex-shrink: 0; }
+
+/* ── Diff tables ──────────────────────────────────────────────── */
+.section-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 1.25rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.section-header { padding: .85rem 1.25rem; font-size: .9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none; border-bottom: 1px solid #f1f5f9; }
+.section-header:hover { background: #fafbfc; }
+.chevron { transition: transform .2s; font-size: .75rem; color: #94a3b8; }
+.chevron.collapsed { transform: rotate(-90deg); }
+
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+thead th { background: #f8fafc; padding: .6rem 1rem; text-align: left; font-weight: 600; color: #334155; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+tbody td { padding: .55rem 1rem; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+tbody tr:last-child td { border-bottom: none; }
+
+/* Row accent colors */
+.row-accent-source  td:first-child::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #22c55e; border-radius: 2px 0 0 2px; }
+.row-accent-source  td { background: #f0fdf4; position: relative; }
+.row-accent-target  td { background: #fef2f2; position: relative; }
+.row-accent-target  td:first-child::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #ef4444; border-radius: 2px 0 0 2px; }
+.row-accent-change  td { background: #fefce8; }
+.row-accent-pk      td { background: #faf5ff; }
+
+code { font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace; font-size: .82rem; padding: 1px 6px; border-radius: 4px; background: #f1f5f9; color: #0f172a; white-space: nowrap; }
+td code { word-break: break-all; }
+
+/* ── Empty state ──────────────────────────────────────────────── */
+.empty-state { text-align: center; padding: 3rem 1.5rem; color: #64748b; font-size: .95rem; }
+.empty-state .icon { font-size: 2.5rem; margin-bottom: .75rem; }
+
+/* ── Utility ──────────────────────────────────────────────────── */
+.fade-in { animation: fadeIn .3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.hidden { display: none !important; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <h1>Schema Diff</h1>
+  <p class="subtitle">Compare two database schemas side-by-side. Supports SQLite, PostgreSQL, MySQL, Oracle, and SQL Server.</p>
+
+  <!-- Demo hint -->
+  <div class="demo-hint">
+    <div>
+      <strong>Try it now:</strong>&ensp;Two demo SQLite databases are included in the repo. Click a button to load both:
+      &nbsp;<button class="demo-btn" onclick="loadDemo()">Load Demo DBs</button>
+    </div>
+  </div>
+
+  <!-- Connection forms -->
+  <div id="forms-section">
+    <div class="forms-row">
+      <!-- Source -->
+      <div class="form-card" id="source-card">
+        <h2>Source <span class="badge">A</span></h2>
+        <label for="s-type">Database type</label>
+        <select class="db-type-select" id="s-type" onchange="toggleFields('s')">
+          <option value="sqlite">SQLite</option>
+          <option value="postgresql">PostgreSQL</option>
+          <option value="mysql">MySQL</option>
+          <option value="oracle">Oracle</option>
+          <option value="mssql">SQL Server</option>
+        </select>
+
+        <div id="s-fields-sqlite" class="field-group visible" data-db-types="sqlite">
+          <label for="s-file">Database file path</label>
+          <input id="s-file" type="text" placeholder="/path/to/database.sqlite">
+        </div>
+
+        <div id="s-fields-pg" class="field-group hidden" data-db-types="postgresql">
+          <label for="s-host">Host</label><input id="s-host" type="text" placeholder="localhost">
+          <label for="s-port">Port</label><input id="s-port" type="number" value="5432" placeholder="5432">
+          <label for="s-db-pg">Database</label><input id="s-db-pg" type="text" placeholder="mydb">
+          <label for="s-user-pg">User</label><input id="s-user-pg" type="text" placeholder="postgres">
+          <label for="s-pass-pg">Password</label><input id="s-pass-pg" type="password" placeholder="••••••">
+        </div>
+
+        <div id="s-fields-mysql" class="field-group hidden" data-db-types="mysql">
+          <label for="s-host-my">Host</label><input id="s-host-my" type="text" placeholder="localhost">
+          <label for="s-port-my">Port</label><input id="s-port-my" type="number" value="3306" placeholder="3306">
+          <label for="s-db-my">Database</label><input id="s-db-my" type="text" placeholder="mydb">
+          <label for="s-user-my">User</label><input id="s-user-my" type="text" placeholder="root">
+          <label for="s-pass-my">Password</label><input id="s-pass-my" type="password" placeholder="••••••">
+        </div>
+
+        <div id="s-fields-oracle" class="field-group hidden" data-db-types="oracle">
+          <label for="s-host-o">Host</label><input id="s-host-o" type="text" placeholder="localhost">
+          <label for="s-port-o">Port</label><input id="s-port-o" type="number" value="1521" placeholder="1521">
+          <label for="s-service-o">Service / SID</label><input id="s-service-o" type="text" placeholder="orclpdb1">
+          <label for="s-user-o">User</label><input id="s-user-o" type="text" placeholder="system">
+          <label for="s-pass-o">Password</label><input id="s-pass-o" type="password" placeholder="••••••">
+        </div>
+
+        <div id="s-fields-mssql" class="field-group hidden" data-db-types="mssql">
+          <label for="s-host-ms">Host</label><input id="s-host-ms" type="text" placeholder="localhost">
+          <label for="s-port-ms">Port</label><input id="s-port-ms" type="number" value="1433" placeholder="1433">
+          <label for="s-db-ms">Database</label><input id="s-db-ms" type="text" placeholder="master">
+          <label for="s-user-ms">User</label><input id="s-user-ms" type="text" placeholder="sa">
+          <label for="s-pass-ms">Password</label><input id="s-pass-ms" type="password" placeholder="••••••">
+        </div>
+      </div>
+
+      <!-- Target -->
+      <div class="form-card" id="target-card">
+        <h2>Target <span class="badge">B</span></h2>
+        <label for="t-type">Database type</label>
+        <select class="db-type-select" id="t-type" onchange="toggleFields('t')">
+          <option value="sqlite">SQLite</option>
+          <option value="postgresql">PostgreSQL</option>
+          <option value="mysql">MySQL</option>
+          <option value="oracle">Oracle</option>
+          <option value="mssql">SQL Server</option>
+        </select>
+
+        <div id="t-fields-sqlite" class="field-group visible" data-db-types="sqlite">
+          <label for="t-file">Database file path</label>
+          <input id="t-file" type="text" placeholder="/path/to/database.sqlite">
+        </div>
+
+        <div id="t-fields-pg" class="field-group hidden" data-db-types="postgresql">
+          <label for="t-host">Host</label><input id="t-host" type="text" placeholder="localhost">
+          <label for="t-port">Port</label><input id="t-port" type="number" value="5432" placeholder="5432">
+          <label for="t-db-pg">Database</label><input id="t-db-pg" type="text" placeholder="mydb">
+          <label for="t-user-pg">User</label><input id="t-user-pg" type="text" placeholder="postgres">
+          <label for="t-pass-pg">Password</label><input id="t-pass-pg" type="password" placeholder="••••••">
+        </div>
+
+        <div id="t-fields-mysql" class="field-group hidden" data-db-types="mysql">
+          <label for="t-host-my">Host</label><input id="t-host-my" type="text" placeholder="localhost">
+          <label for="t-port-my">Port</label><input id="t-port-my" type="number" value="3306" placeholder="3306">
+          <label for="t-db-my">Database</label><input id="t-db-my" type="text" placeholder="mydb">
+          <label for="t-user-my">User</label><input id="t-user-my" type="text" placeholder="root">
+          <label for="t-pass-my">Password</label><input id="t-pass-my" type="password" placeholder="••••••">
+        </div>
+
+        <div id="t-fields-oracle" class="field-group hidden" data-db-types="oracle">
+          <label for="t-host-o">Host</label><input id="t-host-o" type="text" placeholder="localhost">
+          <label for="t-port-o">Port</label><input id="t-port-o" type="number" value="1521" placeholder="1521">
+          <label for="t-service-o">Service / SID</label><input id="t-service-o" type="text" placeholder="orclpdb1">
+          <label for="t-user-o">User</label><input id="t-user-o" type="text" placeholder="system">
+          <label for="t-pass-o">Password</label><input id="t-pass-o" type="password" placeholder="••••••">
+        </div>
+
+        <div id="t-fields-mssql" class="field-group hidden" data-db-types="mssql">
+          <label for="t-host-ms">Host</label><input id="t-host-ms" type="text" placeholder="localhost">
+          <label for="t-port-ms">Port</label><input id="t-port-ms" type="number" value="1433" placeholder="1433">
+          <label for="t-db-ms">Database</label><input id="t-db-ms" type="text" placeholder="master">
+          <label for="t-user-ms">User</label><input id="t-user-ms" type="text" placeholder="sa">
+          <label for="t-pass-ms">Password</label><input id="t-pass-ms" type="password" placeholder="••••••">
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="doCompare()">
+        &#9656;&ensp;Compare Schemas
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading-bar" id="loading">
+    <div class="spinner"></div>
+    <p>Fetching schemas&#8230;</p>
+  </div>
+
+  <!-- Error banner -->
+  <div class="error-banner" id="error-banner"></div>
+
+  <!-- Results -->
+  <div class="results" id="results">
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="backToForms()">&#8592;&ensp;Back to Forms</button>
+    </div>
+
+    <!-- Summary bar -->
+    <div class="summary-bar fade-in" id="summary-bar">
+      <div class="summary-stats" id="summary-stats"></div>
+      <div class="legend">
+        <span style="font-weight:600; font-size:.85rem;">Legend:</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#f0fdf4;"></span> Only in source</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#fef2f2;"></span> Only in target</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#fefce8;"></span> Changed</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#faf5ff;"></span> PK changed</span>
+      </div>
+    </div>
+
+    <!-- Sections rendered here -->
+    <div id="sections-container"></div>
+  </div>
+
+</div><!-- /.container -->
+
+<script>
+/* ── Toggle fields per db_type ─────────────────────────────────── */
+function toggleFields(prefix) {
+  const type = document.getElementById(`${prefix}-type`).value;
+  // Hide all field groups for this card
+  document.querySelectorAll(`[id^="${prefix}-fields-"]`).forEach(el => {
+    el.classList.remove('visible');
+    el.classList.add('hidden');
+  });
+  // Show matching one
+  const target = document.getElementById(`${prefix}-fields-${type === 'postgresql' ? 'pg' : type === 'mysql' ? 'mysql' : type === 'oracle' ? 'oracle' : type === 'mssql' ? 'mssql' : 'sqlite'}`);
+  if (target) { target.classList.remove('hidden'); target.classList.add('visible'); }
+}
+
+/* ── Collect form data ─────────────────────────────────────────── */
+function collect(prefix) {
+  const dbType = document.getElementById(`${prefix}-type`).value;
+  const info = { db_type: dbType };
+  if (dbType === 'sqlite') { info.dbfile = document.getElementById(`${prefix}-file`).value.trim(); }
+  else if (dbType === 'postgresql') {
+    Object.assign(info, { host: gf(`${prefix}-host`), port: gf(`${prefix}-port`), user: gf(`${prefix}-user-pg`), password: gf(`${prefix}-pass-pg`), database: gf(`${prefix}-db-pg`) });
+  } else if (dbType === 'mysql') {
+    Object.assign(info, { host: gf(`${prefix}-host-my`), port: gf(`${prefix}-port-my`), user: gf(`${prefix}-user-my`), password: gf(`${prefix}-pass-my`), database: gf(`${prefix}-db-my`) });
+  } else if (dbType === 'oracle') {
+    Object.assign(info, { host: gf(`${prefix}-host-o`), port: gf(`${prefix}-port-o`), user: gf(`${prefix}-user-o`), password: gf(`${prefix}-pass-o`), service_name: gf(`${prefix}-service-o`), database: gf(`${prefix}-service-o`) });
+  } else if (dbType === 'mssql') {
+    Object.assign(info, { host: gf(`${prefix}-host-ms`), port: gf(`${prefix}-port-ms`), user: gf(`${prefix}-user-ms`), password: gf(`${prefix}-pass-ms`), database: gf(`${prefix}-db-ms`) });
+  }
+  return info;
+}
+function gf(id) { const el = document.getElementById(id); return el ? el.value.trim() || undefined : undefined; }
+
+/* ── Compare action ────────────────────────────────────────────── */
+async function doCompare() {
+  hide('error-banner'); hide('results'); show('loading');
+  const source = collect('s');
+  const target = collect('t');
+  if (source.db_type === 'sqlite' && !source.dbfile) { showError('Please enter the SQLite file path for the source.'); return; }
+  if (target.db_type === 'sqlite' && !target.dbfile) { showError('Please enter the SQLite file path for the target.'); return; }
+
+  try {
+    const resp = await fetch('/api/compare', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source, target})
+    });
+    const data = await resp.json();
+    hide('loading');
+    if (data.error) { showError(data.error); return; }
+    document.getElementById('forms-section').classList.add('hidden');
+    renderResults(data.result);
+  } catch (err) {
+    hide('loading'); showError(`Request failed: ${err.message}`);
+  }
+}
+
+/* ── Render results ────────────────────────────────────────────── */
+function renderResults(r) {
+  show('results'); hide('error-banner');
+  const s = r.source_type.toUpperCase(), t = r.target_type.toUpperCase();
+  const totalTables = Object.keys(r.differences).length;
+  document.getElementById('summary-stats').innerHTML = `
+    <span class="stat-item"><span class="stat-value">${s}</span><span class="stat-label">source</span></span>
+    <span style="color:#94a3b8;">&#8594;</span>
+    <span class="stat-item"><span class="stat-value">${t}</span><span class="stat-label">target</span></span>
+    <span class="stat-item" style="margin-left:auto;"><span class="stat-value">${totalTables}</span><span class="stat-label">diff table(s)</span></span>`;
+
+  const container = document.getElementById('sections-container');
+  let html = '';
+
+  // --- Tables only in source ---
+  if (r.tables_in_source_only?.length) {
+    html += sectionCard(`Tables only in <b>${s}</b>`, false, () => {
+      return `<table><thead><tr><th>Table</th><th>Status</th></tr></thead><tbody>` +
+        r.tables_in_source_only.map(n => `<tr class="row-accent-source"><td><code>${esc(n)}</code></td><td>missing in target</td></tr>`).join('') + `</tbody></table>`;
+    });
+  }
+
+  // --- Tables only in target ---
+  if (r.tables_in_target_only?.length) {
+    html += sectionCard(`Tables only in <b>${t}</b>`, false, () => {
+      return `<table><thead><tr><th>Table</th><th>Status</th></tr></thead><tbody>` +
+        r.tables_in_target_only.map(n => `<tr class="row-accent-target"><td><code>${esc(n)}</code></td><td>missing in source</td></tr>`).join('') + `</tbody></table>`;
+    });
+  }
+
+  // --- Per-table diffs ---
+  const diffTables = r.differences;
+  for (const [tname, diff] of Object.entries(diffTables)) {
+    const rows = [];
+    if (diff.columns_only_in_source) {
+      diff.columns_only_in_source.forEach(c => rows.push(`<tr class="row-accent-source"><td><code>${esc(c)}</code></td><td>column</td><td>${s}</td><td>—</td></tr>`));
+    }
+    if (diff.columns_only_in_target) {
+      diff.columns_only_in_target.forEach(c => rows.push(`<tr class="row-accent-target"><td><code>${esc(c)}</code></td><td>column</td><td>—</td><td>${t}</td></tr>`));
+    }
+    if (diff.column_differences) {
+      diff.column_differences.forEach(cd => {
+        const attrs = ['type','nullable','default'];
+        attrs.forEach(attr => {
+          if (cd.changes[attr]) {
+            const srcVal = attr === 'nullable' ? (cd.changes[attr].source ? 'NO' : 'YES') : (cd.changes[attr].source ?? '—');
+            const tgtVal = attr === 'nullable' ? (cd.changes[attr].target ? 'NO' : 'YES') : (cd.changes[attr].target ?? '—');
+            rows.push(`<tr class="row-accent-change"><td><code>${esc(cd.name)}</code></td><td>${attr}</td><td>${esc(String(srcVal))}</td><td>${esc(String(tgtVal))}</td></tr>`);
+          }
+        });
+      });
+    }
+    if (diff.primary_key_difference) {
+      const srcPk = diff.primary_key_difference.source.map(esc).join(', ');
+      const tgtPk = diff.primary_key_difference.target.map(esc).join(', ');
+      rows.push(`<tr class="row-accent-pk"><td><code>${esc(tname)}</code></td><td>primary key</td><td>${srcPk}</td><td>${tgtPk}</td></tr>`);
+    }
+
+    html += sectionCard(`Table: <code>${esc(tname)}</code>`, true, () => `<table><thead><tr><th>Column</th><th>Attribute</th><th>${s}</th><th>${t}</th></tr></thead><tbody>${rows.join('')}</tbody></table>`);
+  }
+
+  if (!html) { html = `<div class="empty-state"><div class="icon">&#10003;</div><p>No differences found — the schemas are identical.</p></div>`; }
+  container.innerHTML = html;
+}
+
+/* ── Helper builders ───────────────────────────────────────────── */
+function sectionCard(title, collapsible, rowFactory) {
+  const id = 'sec-' + Math.random().toString(36).slice(2,8);
+  const rows = `<div class="table-scroll">${rowFactory()}</div>`;
+  if (!collapsible) return `<div class="section-card fade-in"><div class="section-header">${title}</div>${rows}</div>`;
+  return `<div class="section-card fade-in">
+    <div class="section-header" onclick="toggleSection('${id}', this)">
+      ${title} <span class="chevron">&#9660;</span>
+    </div>
+    <div id="${id}" class="table-scroll">${rows}</div>
+  </div>`;
+}
+
+function toggleSection(id, header) {
+  const el = document.getElementById(id);
+  const chev = header.querySelector('.chevron');
+  if (el.style.display === 'none') { el.style.display = ''; chev.classList.remove('collapsed'); }
+  else { el.style.display = 'none'; chev.classList.add('collapsed'); }
+}
+
+function esc(s) { return String(s).replace(/&/g,'&#38;').replace(/</g,'&#60;').replace(/>/g,'&#62;').replace(/"/g,'&#34;'); }
+
+/* ── UI helpers ─────────────────────────────────────────────────── */
+function show(id) { document.getElementById(id).classList.remove('hidden'); document.getElementById(id).style.display = ''; }
+function hide(id) { const el = document.getElementById(id); if (el) { el.classList.add('hidden'); el.style.display = 'none'; } }
+function showError(msg) {
+  const b = document.getElementById('error-banner');
+  b.textContent = msg; b.classList.remove('hidden'); show('error-banner'); hide('loading');
+}
+function backToForms() { hide('results'); hide('error-banner'); document.getElementById('forms-section').classList.remove('hidden'); }
+
+/* ── Demo loader ───────────────────────────────────────────────── */
+function loadDemo() {
+  const base = window.location.pathname.replace(/\/+$/, '');
+  document.getElementById('s-file').value = `${base}/demo_source.sqlite`;
+  document.getElementById('t-file').value = `${base}/demo_target.sqlite`;
+  // Also set both types to SQLite
+  document.getElementById('s-type').value = 'sqlite';
+  document.getElementById('t-type').value = 'sqlite';
+  toggleFields('s'); toggleFields('t');
+}
+</script>
+</body>
+</html>
